@@ -9,11 +9,14 @@
     .container { background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
     .input-group { margin-bottom:20px; }
     input, button { font-size:16px; padding:10px; }
+    /* [修改2] 加大输入框宽度，并增加右边距 */
+    #addressInput { width: 500px; margin-right: 10px; }
     button { background:#4CAF50; color:#fff; border:none; border-radius:4px; cursor:pointer; }
     button:hover { background:#45a049; }
-    .results, .error, .loading { margin-top:20px; }
+    .results, .error, .loading, .location-info { margin-top:20px; }
     .error { color:#f44336; font-weight:bold; }
     .loading { text-align:center; }
+    .location-info { padding: 10px; background-color: #eef; border-left: 4px solid #66f; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; }
     th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
     th { background: #f0f0f0; }
@@ -22,8 +25,6 @@
     .progress-container { width: 100%; background: #eee; border-radius: 10px; height: 18px; margin: 10px 0 12px 0; overflow: hidden; box-shadow: 0 1px 3px #ddd inset; display: none; }
     .progress-bar { height: 100%; background: linear-gradient(90deg, #4CAF50 60%, #81C784 100%); width: 0; transition: width 0.3s; border-radius: 10px 0 0 10px; }
     .progress-text { margin-top: 4px; color: #555; font-size: 14px; text-align: center; }
-    .quota-warning { background: #fff3cd; color: #856404; padding: 12px; border-radius: 4px; border: 1px solid #ffeaa7; margin-top: 10px; }
-    .city-row { background-color: #e8f0fe; font-weight: bold; }
   </style>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASFANcoyPfMKVQFjgd6Ajz7UdXXkCeB3w&libraries=places"></script>
 </head>
@@ -42,6 +43,7 @@
     <div id="loading" class="loading" style="display:none;">正在计算中...</div>
     <div id="error" class="error"></div>
     <div id="results" class="results"></div>
+    <div id="locationInfo" class="location-info" style="display:none;"></div>
   </div>
 
 <script>
@@ -59,8 +61,9 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
-// --- 核心功能函数 (无需修改) ---
-// 为了简洁，这里省略了未改变的函数体，实际使用时请包含它们
+// --- 核心功能函数 ---
+
+// [修改3] 重新在geocodeAddress中获取城市名，以便后续显示
 async function geocodeAddress(address) {
   checkGoogleMapsAPI();
   return withTimeout(new Promise((resolve, reject) => {
@@ -68,20 +71,26 @@ async function geocodeAddress(address) {
     geocoder.geocode({address}, (results, status) => {
       if (status !== "OK" || !results?.length) return reject(new Error(`地址查询失败: ${status}`));
       const result = results[0];
-      let state = "";
+      let state = "", city = "";
       for (const c of result.address_components) {
         if (c.types.includes("administrative_area_level_1")) state = c.long_name;
+        if (c.types.includes("locality")) city = c.long_name;
       }
       if (!state) return reject(new Error("未能识别州信息"));
+      if (!city) return reject(new Error("未能识别城市信息，请确保地址详细"));
+
       resolve({
         lat: result.geometry.location.lat(),
         lng: result.geometry.location.lng(),
         stateKey: formatLocationName(state),
-        stateRaw: state
+        stateRaw: state,
+        cityRaw: city // 返回原始的城市名用于显示
       });
     });
   }), REQUEST_TIMEOUT);
 }
+
+// ... getDistanceMatrixBatch 和 concurrentPool 函数和上一版相同，此处省略 ...
 async function getDistanceMatrixBatch(origin, destChunk, stateRaw) {
   return withTimeout(new Promise((resolve) => {
     const service = new google.maps.DistanceMatrixService();
@@ -138,18 +147,19 @@ async function concurrentPool(tasks, poolLimit, onProgress) {
 }
 
 
-// --- 事件处理主逻辑 (全新重构) ---
+// --- 事件处理主逻辑 ---
 const btn = document.getElementById('btnSearch');
 const loadingEl = document.getElementById('loading');
 const errorEl   = document.getElementById('error');
 const resultsEl = document.getElementById('results');
-const progressContainer = document.getElementById('progressContainer');
-const progressBar = document.getElementById('progressBar');
-const progressText = document.getElementById('progressText');
+const locationInfoEl = document.getElementById('locationInfo'); // 获取新div的引用
 
 btn.onclick = async function() {
+  // 重置所有显示区域
   errorEl.textContent = '';
   resultsEl.innerHTML = '';
+  locationInfoEl.innerHTML = '';
+  locationInfoEl.style.display = 'none';
   loadingEl.style.display = 'block';
   progressContainer.style.display = 'none';
   
@@ -157,30 +167,20 @@ btn.onclick = async function() {
     const input = document.getElementById('addressInput').value.trim();
     if (!input) throw new Error("请输入店铺地址");
 
-    // ======================================================================
     // 阶段一：确定最近的城市
-    // ======================================================================
-    
-    // 1. 获取地址坐标和州信息
-    const { lat, lng, stateKey, stateRaw } = await geocodeAddress(input);
+    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input); // 获取 cityRaw
     const originCoords = `${lat},${lng}`;
-
-    // 2. 加载数据并获取州内所有城市列表
     const resp = await fetch('bedpage.json');
     if (!resp.ok) throw new Error('区域数据文件加载失败');
     const allData = await resp.json();
     const stateData = allData[stateKey];
     if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
-
     const allCityNames = Object.keys(stateData);
     if (allCityNames.length === 0) throw new Error(`“${stateKey}”州下未定义任何城市`);
-
-    // 3. 创建到所有城市的距离查询任务
     const cityDestinations = allCityNames.map(city => ({ name: city, type: 'city' }));
     const cityChunks = chunkArray(cityDestinations, MAX_BATCH_SIZE);
     const cityTasks = cityChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
-
-    // 4. 执行第一阶段查询
+    
     progressContainer.style.display = 'block';
     progressBar.style.width = "0%";
     progressText.textContent = `阶段1：正在确定最近的城市 (共 ${allCityNames.length} 个)...`;
@@ -191,29 +191,20 @@ btn.onclick = async function() {
         progressText.textContent = `阶段1：正在确定最近的城市... ${percent}%`;
     });
     
-    // 5. 找出最近的城市
     const validCityResults = cityResults.filter(r => r.distanceVal !== Infinity);
     if (validCityResults.length === 0) throw new Error(`无法计算到 “${stateKey}” 州内任何一个城市的距离。`);
-
     validCityResults.sort((a, b) => a.distanceVal - b.distanceVal);
     const nearestCity = validCityResults[0];
 
-    // ======================================================================
     // 阶段二：查询最近城市下的具体区域
-    // ======================================================================
-
-    // 1. 获取最近城市下的区域列表
     const areasInNearestCity = stateData[nearestCity.name];
     if (!Array.isArray(areasInNearestCity) || areasInNearestCity.length === 0) {
       throw new Error(`最近的城市 “${nearestCity.name}” 下没有定义具体区域。`);
     }
-
-    // 2. 创建到这些区域的距离查询任务
     const areaDestinations = areasInNearestCity.map(area => ({ name: area, city: nearestCity.name, type: 'area' }));
     const areaChunks = chunkArray(areaDestinations, MAX_BATCH_SIZE);
     const areaTasks = areaChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
     
-    // 3. 执行第二阶段查询
     progressBar.style.width = "0%";
     progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的 ${areasInNearestCity.length} 个区域...`;
     
@@ -223,25 +214,13 @@ btn.onclick = async function() {
         progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的区域... ${percent}%`;
     });
 
-    // ======================================================================
     // 阶段三：整理并显示结果
-    // ======================================================================
-
-    // 1. 排序最终的区域结果
     areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
     
-    // 2. 生成HTML表格
+    // [修改1] 不再生成城市中心的HTML行
     let tableRows = '';
-    // 添加最近的城市作为第一行 (高亮)
-    tableRows += `<tr class="city-row">
-        <td>${nearestCity.name} (最近的城市中心)</td>
-        <td>${nearestCity.name}</td>
-        <td>${nearestCity.distance}</td>
-        <td>${nearestCity.duration}</td>
-        <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(nearestCity.name + ', ' + stateRaw)}" target="_blank">导航</a></td>
-    </tr>`;
     
-    // 添加该城市下的区域列表
+    // 只生成具体区域的HTML行
     areaResults.forEach(r => {
       tableRows += `<tr>
           <td>${r.name}</td>
@@ -252,13 +231,22 @@ btn.onclick = async function() {
       </tr>`;
     });
 
-    resultsEl.innerHTML = `
-      <table>
-        <thead><tr><th>目标地点</th><th>所属城市</th><th>距离</th><th>驾车所需时间</th><th>导航</th></tr></thead>
-        <tbody>${tableRows}</tbody>
-      </table>`;
+    // 如果没有任何区域结果，显示提示信息
+    if (tableRows === '') {
+        resultsEl.innerHTML = `<p>在最近的城市“${nearestCity.name}”中未找到可计算距离的具体区域。</p>`
+    } else {
+        resultsEl.innerHTML = `
+          <table>
+            <thead><tr><th>目标地点</th><th>所属城市</th><th>距离</th><th>驾车所需时间</th><th>导航</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>`;
+    }
       
     progressText.textContent = "查询完成！";
+    
+    // [修改3] 在下方显示识别出的地址信息
+    locationInfoEl.innerHTML = `<strong>地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong>${cityRaw}</strong> 市。`;
+    locationInfoEl.style.display = 'block';
 
   } catch (e) {
     errorEl.textContent = e.message;
