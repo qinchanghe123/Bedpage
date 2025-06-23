@@ -9,7 +9,6 @@
     .container { background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
     .input-group { margin-bottom:20px; }
     input, button { font-size:16px; padding:10px; }
-    /* [修改2] 加大输入框宽度，并增加右边距 */
     #addressInput { width: 500px; margin-right: 10px; }
     button { background:#4CAF50; color:#fff; border:none; border-radius:4px; cursor:pointer; }
     button:hover { background:#45a049; }
@@ -34,7 +33,7 @@
     <div class="input-group">
       <input id="addressInput" type="text" placeholder="请输入店铺地址" />
       <button id="btnSearch">点击查询</button>
-      <div style="margin-top:8px;color:#666;">Bedpage定点查询 (最近城市定位版)</div>
+      <div style="margin-top:8px;color:#666;">Bedpage定点查询</div>
     </div>
     <div class="progress-container" id="progressContainer">
       <div class="progress-bar" id="progressBar"></div>
@@ -42,8 +41,10 @@
     <div class="progress-text" id="progressText"></div>
     <div id="loading" class="loading" style="display:none;">正在计算中...</div>
     <div id="error" class="error"></div>
-    <div id="results" class="results"></div>
+
     <div id="locationInfo" class="location-info" style="display:none;"></div>
+    <div id="results" class="results"></div>
+
   </div>
 
 <script>
@@ -61,9 +62,8 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
-// --- 核心功能函数 ---
-
-// [修改3] 重新在geocodeAddress中获取城市名，以便后续显示
+// --- 核心功能函数 (无需修改) ---
+// 为了简洁，这里省略了未改变的函数体，实际使用时请包含它们
 async function geocodeAddress(address) {
   checkGoogleMapsAPI();
   return withTimeout(new Promise((resolve, reject) => {
@@ -84,13 +84,11 @@ async function geocodeAddress(address) {
         lng: result.geometry.location.lng(),
         stateKey: formatLocationName(state),
         stateRaw: state,
-        cityRaw: city // 返回原始的城市名用于显示
+        cityRaw: city
       });
     });
   }), REQUEST_TIMEOUT);
 }
-
-// ... getDistanceMatrixBatch 和 concurrentPool 函数和上一版相同，此处省略 ...
 async function getDistanceMatrixBatch(origin, destChunk, stateRaw) {
   return withTimeout(new Promise((resolve) => {
     const service = new google.maps.DistanceMatrixService();
@@ -147,12 +145,12 @@ async function concurrentPool(tasks, poolLimit, onProgress) {
 }
 
 
-// --- 事件处理主逻辑 ---
+// --- 事件处理主逻辑 (无需修改) ---
 const btn = document.getElementById('btnSearch');
 const loadingEl = document.getElementById('loading');
 const errorEl   = document.getElementById('error');
 const resultsEl = document.getElementById('results');
-const locationInfoEl = document.getElementById('locationInfo'); // 获取新div的引用
+const locationInfoEl = document.getElementById('locationInfo');
 
 btn.onclick = async function() {
   // 重置所有显示区域
@@ -168,7 +166,7 @@ btn.onclick = async function() {
     if (!input) throw new Error("请输入店铺地址");
 
     // 阶段一：确定最近的城市
-    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input); // 获取 cityRaw
+    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input);
     const originCoords = `${lat},${lng}`;
     const resp = await fetch('bedpage.json');
     if (!resp.ok) throw new Error('区域数据文件加载失败');
@@ -217,10 +215,7 @@ btn.onclick = async function() {
     // 阶段三：整理并显示结果
     areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
     
-    // [修改1] 不再生成城市中心的HTML行
     let tableRows = '';
-    
-    // 只生成具体区域的HTML行
     areaResults.forEach(r => {
       tableRows += `<tr>
           <td>${r.name}</td>
@@ -230,8 +225,12 @@ btn.onclick = async function() {
           <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(r.name + ', ' + r.city + ', ' + stateRaw)}" target="_blank">导航</a></td>
       </tr>`;
     });
-
-    // 如果没有任何区域结果，显示提示信息
+    
+    // 先显示地址信息
+    locationInfoEl.innerHTML = `<strong>地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong>${cityRaw}</strong> 市。`;
+    locationInfoEl.style.display = 'block';
+    
+    // 再显示结果列表
     if (tableRows === '') {
         resultsEl.innerHTML = `<p>在最近的城市“${nearestCity.name}”中未找到可计算距离的具体区域。</p>`
     } else {
@@ -243,10 +242,6 @@ btn.onclick = async function() {
     }
       
     progressText.textContent = "查询完成！";
-    
-    // [修改3] 在下方显示识别出的地址信息
-    locationInfoEl.innerHTML = `<strong>地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong>${cityRaw}</strong> 市。`;
-    locationInfoEl.style.display = 'block';
 
   } catch (e) {
     errorEl.textContent = e.message;
