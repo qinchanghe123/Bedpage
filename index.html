@@ -33,7 +33,7 @@
     <div class="input-group">
       <input id="addressInput" type="text" placeholder="请输入店铺地址" />
       <button id="btnSearch">点击查询</button>
-      <div style="margin-top:8px;color:#666;">Bedpage定点查询</div>
+      <div style="margin-top:8px;color:#666;">Bedpage定点查询 (最近城市定位版)</div>
     </div>
     <div class="progress-container" id="progressContainer">
       <div class="progress-bar" id="progressBar"></div>
@@ -45,31 +45,21 @@
   </div>
 
 <script>
-// [修改] 提高并发数。注意：浏览器本身对同域名的并发连接数有限制（通常6-10个），
-// 此处设置更高数值（如50）意味着JS会维护一个更大的任务队列，由并发池逻辑进行调度，
-// 而非真正同时发起50个网络请求。这个值可以根据实际情况微调。
 const MAX_CONCURRENT = 50; 
 const REQUEST_TIMEOUT = 60000;
-const MAX_BATCH_SIZE = 25; // API支持的最大批量数
-const MIN_API_CALLS_TARGET = 200; // 目标调用次数区间的下限
-const MAX_API_CALLS_TARGET = 300; // 目标调用次数区间的上限
+const MAX_BATCH_SIZE = 25; 
 
-// --- 辅助函数 (不变) ---
+// --- 辅助函数 (无需修改) ---
 function checkGoogleMapsAPI() { if (typeof google === 'undefined' || !google.maps) throw new Error('API服务配额已耗尽'); }
 function withTimeout(p, t) { return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('API超时')), t))]); }
 function formatLocationName(n) { return n.toLowerCase().replace(/\b\w/g, l => l.toUpperCase()); }
 function chunkArray(arr, size) {
   const chunks = [];
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size));
-  }
+  for (let i = 0; i < arr.length; i += size) { chunks.push(arr.slice(i, i + size)); }
   return chunks;
 }
 
-// --- 核心功能函数 (不变) ---
-async function geocodeAddress(address) { /* ... 和上一版相同 ... */ }
-async function getDistanceMatrixBatch(origin, destChunk, stateRaw) { /* ... 和上一版相同 ... */ }
-async function concurrentPool(tasks, poolLimit, onProgress) { /* ... 和上一版相同 ... */ }
+// --- 核心功能函数 (无需修改) ---
 // 为了简洁，这里省略了未改变的函数体，实际使用时请包含它们
 async function geocodeAddress(address) {
   checkGoogleMapsAPI();
@@ -78,17 +68,15 @@ async function geocodeAddress(address) {
     geocoder.geocode({address}, (results, status) => {
       if (status !== "OK" || !results?.length) return reject(new Error(`地址查询失败: ${status}`));
       const result = results[0];
-      let state = "", city = "";
+      let state = "";
       for (const c of result.address_components) {
         if (c.types.includes("administrative_area_level_1")) state = c.long_name;
-        if (c.types.includes("locality")) city = c.long_name;
       }
-      if (!state || !city) return reject(new Error("未能识别完整的州和城市信息"));
+      if (!state) return reject(new Error("未能识别州信息"));
       resolve({
         lat: result.geometry.location.lat(),
         lng: result.geometry.location.lng(),
         stateKey: formatLocationName(state),
-        cityKey: formatLocationName(city),
         stateRaw: state
       });
     });
@@ -97,11 +85,7 @@ async function geocodeAddress(address) {
 async function getDistanceMatrixBatch(origin, destChunk, stateRaw) {
   return withTimeout(new Promise((resolve) => {
     const service = new google.maps.DistanceMatrixService();
-    const destinationStrings = destChunk.map(dest => {
-      return dest.type === 'city'
-        ? `${dest.name}, ${stateRaw}`
-        : `${dest.name}, ${dest.city}, ${stateRaw}`;
-    });
+    const destinationStrings = destChunk.map(dest => dest.type === 'city' ? `${dest.name}, ${stateRaw}` : `${dest.name}, ${dest.city}, ${stateRaw}`);
     service.getDistanceMatrix({
       origins: [origin],
       destinations: destinationStrings,
@@ -154,8 +138,7 @@ async function concurrentPool(tasks, poolLimit, onProgress) {
 }
 
 
-// --- 事件处理主逻辑 ---
-
+// --- 事件处理主逻辑 (全新重构) ---
 const btn = document.getElementById('btnSearch');
 const loadingEl = document.getElementById('loading');
 const errorEl   = document.getElementById('error');
@@ -174,83 +157,97 @@ btn.onclick = async function() {
     const input = document.getElementById('addressInput').value.trim();
     if (!input) throw new Error("请输入店铺地址");
 
-    const { lat, lng, stateKey, cityKey, stateRaw } = await geocodeAddress(input);
+    // ======================================================================
+    // 阶段一：确定最近的城市
+    // ======================================================================
+    
+    // 1. 获取地址坐标和州信息
+    const { lat, lng, stateKey, stateRaw } = await geocodeAddress(input);
+    const originCoords = `${lat},${lng}`;
+
+    // 2. 加载数据并获取州内所有城市列表
     const resp = await fetch('bedpage.json');
     if (!resp.ok) throw new Error('区域数据文件加载失败');
     const allData = await resp.json();
     const stateData = allData[stateKey];
     if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
 
-    let allDestinations = [];
-    allDestinations.push({ name: cityKey, city: cityKey, type: 'city' });
-    for (const city in stateData) {
-      if(Array.isArray(stateData[city])) {
-        stateData[city].forEach(area => {
-          allDestinations.push({ name: area, city: city, type: 'area' });
-        });
-      }
-    }
-    
-    // [重大修改] 动态批量大小和API调用次数控制逻辑
-    const totalDestinations = allDestinations.length;
-    let dynamicBatchSize;
-    let strategy;
+    const allCityNames = Object.keys(stateData);
+    if (allCityNames.length === 0) throw new Error(`“${stateKey}”州下未定义任何城市`);
 
-    // 1. 检查是否为“超大型查询”
-    const callsWithMaxBatch = Math.ceil(totalDestinations / MAX_BATCH_SIZE);
-    if (callsWithMaxBatch > MAX_API_CALLS_TARGET) {
-      // 回退策略：使用最大效率执行
-      dynamicBatchSize = MAX_BATCH_SIZE;
-      strategy = `大型查询，采用最高效率 (每批${dynamicBatchSize}个)`;
-    } else {
-      // 智能调节策略：动态计算批量大小以命中200-300的随机目标
-      // a. 生成一个200到300之间的随机目标调用次数
-      const targetApiCallCount = Math.floor(Math.random() * (MAX_API_CALLS_TARGET - MIN_API_CALLS_TARGET + 1)) + MIN_API_CALLS_TARGET;
+    // 3. 创建到所有城市的距离查询任务
+    const cityDestinations = allCityNames.map(city => ({ name: city, type: 'city' }));
+    const cityChunks = chunkArray(cityDestinations, MAX_BATCH_SIZE);
+    const cityTasks = cityChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
 
-      // b. 计算要达到此目标所需的批量大小
-      // 公式: total / batch_size ≈ target_calls  =>  batch_size ≈ total / target_calls
-      let calculatedBatchSize = Math.ceil(totalDestinations / targetApiCallCount);
-      
-      // c. 确保批量大小在[1, 25]的有效范围内
-      calculatedBatchSize = Math.max(1, calculatedBatchSize); // 至少为1
-      calculatedBatchSize = Math.min(MAX_BATCH_SIZE, calculatedBatchSize); // 不超过25
-
-      dynamicBatchSize = calculatedBatchSize;
-      strategy = `智能调节模式 (每批${dynamicBatchSize}个)`;
-    }
-
-    const actualApiCallCount = Math.ceil(totalDestinations / dynamicBatchSize);
-    
-    // 2. 使用计算出的动态批量大小进行分块
-    const destinationChunks = chunkArray(allDestinations, dynamicBatchSize);
-    const tasks = destinationChunks.map(chunk => () => getDistanceMatrixBatch(`${lat},${lng}`, chunk, stateRaw));
-    
+    // 4. 执行第一阶段查询
     progressContainer.style.display = 'block';
-    progressText.textContent = `${strategy} | 准备执行 ${actualApiCallCount} 次API调用...`;
-
-    // 3. 并发执行所有批量任务
-    const allResults = await concurrentPool(tasks, MAX_CONCURRENT, (finished, total) => {
+    progressBar.style.width = "0%";
+    progressText.textContent = `阶段1：正在确定最近的城市 (共 ${allCityNames.length} 个)...`;
+    
+    const cityResults = await concurrentPool(cityTasks, MAX_CONCURRENT, (finished, total) => {
         const percent = Math.round((finished / total) * 100);
         progressBar.style.width = percent + "%";
-        progressText.textContent = `已完成 ${finished} / ${total} 批次 (${percent}%)`;
+        progressText.textContent = `阶段1：正在确定最近的城市... ${percent}%`;
+    });
+    
+    // 5. 找出最近的城市
+    const validCityResults = cityResults.filter(r => r.distanceVal !== Infinity);
+    if (validCityResults.length === 0) throw new Error(`无法计算到 “${stateKey}” 州内任何一个城市的距离。`);
+
+    validCityResults.sort((a, b) => a.distanceVal - b.distanceVal);
+    const nearestCity = validCityResults[0];
+
+    // ======================================================================
+    // 阶段二：查询最近城市下的具体区域
+    // ======================================================================
+
+    // 1. 获取最近城市下的区域列表
+    const areasInNearestCity = stateData[nearestCity.name];
+    if (!Array.isArray(areasInNearestCity) || areasInNearestCity.length === 0) {
+      throw new Error(`最近的城市 “${nearestCity.name}” 下没有定义具体区域。`);
+    }
+
+    // 2. 创建到这些区域的距离查询任务
+    const areaDestinations = areasInNearestCity.map(area => ({ name: area, city: nearestCity.name, type: 'area' }));
+    const areaChunks = chunkArray(areaDestinations, MAX_BATCH_SIZE);
+    const areaTasks = areaChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
+    
+    // 3. 执行第二阶段查询
+    progressBar.style.width = "0%";
+    progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的 ${areasInNearestCity.length} 个区域...`;
+    
+    const areaResults = await concurrentPool(areaTasks, MAX_CONCURRENT, (finished, total) => {
+        const percent = Math.round((finished / total) * 100);
+        progressBar.style.width = percent + "%";
+        progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的区域... ${percent}%`;
     });
 
-    // 4. “计算全州，显示本地”逻辑
-    const displayResults = allResults.filter(r => r.city === cityKey);
-    const cityResult = displayResults.find(r => r.type === 'city');
-    const areaResults = displayResults.filter(r => r.type === 'area').sort((a, b) => a.distanceVal - b.distanceVal);
+    // ======================================================================
+    // 阶段三：整理并显示结果
+    // ======================================================================
 
-    // 5. 生成最终的HTML表格
+    // 1. 排序最终的区域结果
+    areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
+    
+    // 2. 生成HTML表格
     let tableRows = '';
-    if (cityResult) {
-      tableRows += `<tr class="city-row">
-          <td>${cityResult.name} (城市中心)</td><td>${cityResult.city}</td><td>${cityResult.distance}</td><td>${cityResult.duration}</td>
-          <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(cityResult.name + ', ' + stateRaw)}" target="_blank">导航</a></td>
-      </tr>`;
-    }
+    // 添加最近的城市作为第一行 (高亮)
+    tableRows += `<tr class="city-row">
+        <td>${nearestCity.name} (最近的城市中心)</td>
+        <td>${nearestCity.name}</td>
+        <td>${nearestCity.distance}</td>
+        <td>${nearestCity.duration}</td>
+        <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(nearestCity.name + ', ' + stateRaw)}" target="_blank">导航</a></td>
+    </tr>`;
+    
+    // 添加该城市下的区域列表
     areaResults.forEach(r => {
       tableRows += `<tr>
-          <td>${r.name}</td><td>${r.city}</td><td>${r.distance}</td><td>${r.duration}</td>
+          <td>${r.name}</td>
+          <td>${r.city}</td>
+          <td>${r.distance}</td>
+          <td>${r.duration}</td>
           <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(r.name + ', ' + r.city + ', ' + stateRaw)}" target="_blank">导航</a></td>
       </tr>`;
     });
@@ -261,6 +258,8 @@ btn.onclick = async function() {
         <tbody>${tableRows}</tbody>
       </table>`;
       
+    progressText.textContent = "查询完成！";
+
   } catch (e) {
     errorEl.textContent = e.message;
   } finally {
