@@ -1,329 +1,823 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>顶流广告技术有限公司</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width:800px; margin:0 auto; padding:20px; background:#f5f5f5; }
-    .container { background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
-    .input-group { margin-bottom:20px; }
-    input, button { font-size:16px; padding:10px; }
-    #addressInput { width: 500px; margin-right: 10px; }
-    button { background:#4CAF50; color:#fff; border:none; border-radius:4px; cursor:pointer; }
-    button:hover { background:#45a049; }
-    .results, .error, .loading, .location-info { margin-top:20px; }
-    .error { color:#f44336; font-weight:bold; }
-    .loading { text-align:center; }
-    .location-info { padding: 10px; background-color: #eef; border-left: 4px solid #66f; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
-    th { background: #f0f0f0; }
-    a.nav-link { color: #1a73e8; text-decoration: underline; }
-    a.nav-link:hover { color: #0c51a1; }
-    .progress-container { width: 100%; background: #eee; border-radius: 10px; height: 18px; margin: 10px 0 12px 0; overflow: hidden; box-shadow: 0 1px 3px #ddd inset; display: none; }
-    .progress-bar { height: 100%; background: linear-gradient(90deg, #4CAF50 60%, #81C784 100%); width: 0; transition: width 0.3s; border-radius: 10px 0 0 10px; }
-    .progress-text { margin-top: 4px; color: #555; font-size: 14px; text-align: center; }
-
-    /* Password Protection Styles */
-    .password-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.8);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>顶流广告技术有限公司</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
-    .password-prompt {
-        background: #fff;
-        padding: 30px;
-        border-radius: 8px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        text-align: center;
+    
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
     }
-    .password-prompt input {
-        margin-bottom: 15px;
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
+    
+    .main-wrapper {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 20px;
+      animation: slideUp 0.6s ease-out;
     }
-    .password-prompt button {
-        width: 100%;
+    
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
-    .password-error {
-        color: #f44336;
-        margin-top: 10px;
+    
+    .sidebar {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      padding: 25px;
+      height: fit-content;
+      position: sticky;
+      top: 20px;
     }
-  </style>
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASFANcoyPfMKVQFjgd6Ajz7UdXXkCeB3w&libraries=places"></script>
+    
+    .sidebar h3 {
+      color: #374151;
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      text-align: center;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .history-list {
+      list-style: none;
+    }
+    
+    .history-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .history-item:hover {
+      background: #e2e8f0;
+      transform: translateX(5px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .history-item-content {
+      padding: 12px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .history-address {
+      font-size: 14px;
+      color: #374151;
+      font-weight: 500;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .history-delete {
+      color: #ef4444;
+      font-size: 16px;
+      padding: 4px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    
+    .history-item:hover .history-delete {
+      opacity: 1;
+    }
+    
+    .history-delete:hover {
+      background: #fee2e2;
+    }
+    
+    .clear-history {
+      width: 100%;
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 15px;
+    }
+    
+    .clear-history:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    }
+    
+    .empty-history {
+      text-align: center;
+      color: #9ca3af;
+      font-size: 14px;
+      padding: 20px 10px;
+      font-style: italic;
+    }
+    
+    .container { 
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+      animation: shimmer 3s infinite;
+    }
+    
+    @keyframes shimmer {
+      0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+      100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+    }
+    
+    .header h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    
+    .header .subtitle {
+      font-size: 1rem;
+      opacity: 0.9;
+      position: relative;
+      z-index: 1;
+    }
+    
+    .content {
+      padding: 40px;
+    }
+    
+    .input-section {
+      background: #faf5ff;
+      border-radius: 16px;
+      padding: 30px;
+      margin-bottom: 30px;
+      border: 1px solid #e9d5ff;
+    }
+    
+    .input-group {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .input-wrapper {
+      flex: 1;
+      min-width: 300px;
+      position: relative;
+    }
+    
+    input {
+      width: 100%;
+      font-size: 16px;
+      padding: 16px 20px;
+      border: 2px solid #e1e5e9;
+      border-radius: 12px;
+      background: white;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+    
+    input:focus {
+      border-color: #8b5cf6;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+      transform: translateY(-1px);
+    }
+    
+    input::placeholder {
+      color: #9ca3af;
+    }
+    
+    .search-btn {
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 16px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      min-width: 120px;
+    }
+    
+    .search-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(139, 92, 246, 0.3);
+    }
+    
+    .search-btn:active {
+      transform: translateY(0);
+    }
+    
+    .search-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s;
+    }
+    
+    .search-btn:hover::before {
+      left: 100%;
+    }
+    
+    .feature-note {
+      color: #6b7280;
+      font-size: 14px;
+      text-align: center;
+      margin-top: 15px;
+      padding: 12px;
+      background: rgba(107, 114, 128, 0.1);
+      border-radius: 8px;
+      border-left: 4px solid #8b5cf6;
+    }
+    
+    .location-info {
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      color: #1e40af;
+      padding: 20px;
+      border-radius: 12px;
+      border-left: 4px solid #3b82f6;
+      margin: 20px 0;
+      font-weight: 500;
+      animation: fadeIn 0.5s ease-out;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .progress-container {
+      background: #f3f4f6;
+      border-radius: 12px;
+      height: 24px;
+      margin: 20px 0;
+      overflow: hidden;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      display: none;
+      position: relative;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #8b5cf6 0%, #a78bfa 50%, #c4b5fd 100%);
+      width: 0;
+      transition: width 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .progress-bar::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background: linear-gradient(45deg, transparent 33%, rgba(255,255,255,0.3) 33%, rgba(255,255,255,0.3) 66%, transparent 66%);
+      background-size: 30px 30px;
+      animation: progressStripes 1s linear infinite;
+    }
+    
+    @keyframes progressStripes {
+      0% { background-position: 0 0; }
+      100% { background-position: 30px 0; }
+    }
+    
+    .progress-text {
+      margin-top: 8px;
+      color: #374151;
+      font-size: 14px;
+      text-align: center;
+      font-weight: 500;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #8b5cf6;
+      font-size: 18px;
+      font-weight: 500;
+    }
+    
+    .loading::after {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #e3f2fd;
+      border-top: 3px solid #8b5cf6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 10px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .error {
+      background: #fee2e2;
+      color: #dc2626;
+      padding: 16px 20px;
+      border-radius: 12px;
+      border-left: 4px solid #dc2626;
+      margin: 20px 0;
+      font-weight: 500;
+    }
+    
+    .results {
+      margin-top: 30px;
+      animation: fadeIn 0.5s ease-out;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    }
+    
+    th {
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      color: #374151;
+      font-weight: 600;
+      padding: 18px 16px;
+      text-align: left;
+      border-bottom: 2px solid #e5e7eb;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    td {
+      padding: 16px;
+      border-bottom: 1px solid #f3f4f6;
+      transition: background-color 0.2s ease;
+    }
+    
+    tr:hover td {
+      background-color: #f8fafc;
+    }
+    
+    tr:last-child td {
+      border-bottom: none;
+    }
+    
+    .nav-link {
+      color: #8b5cf6;
+      text-decoration: none;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 2px solid #8b5cf6;
+      transition: all 0.3s ease;
+      display: inline-block;
+      font-size: 14px;
+    }
+    
+    .nav-link:hover {
+      background: #8b5cf6;
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
+    
+    @media (max-width: 1024px) {
+      .main-wrapper {
+        grid-template-columns: 1fr;
+        gap: 15px;
+        max-width: 800px;
+      }
+      
+      .sidebar {
+        position: static;
+        order: 2;
+      }
+    }
+    
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      
+      .content {
+        padding: 20px;
+      }
+      
+      .input-group {
+        flex-direction: column;
+      }
+      
+      .input-wrapper {
+        min-width: auto;
+      }
+      
+      .header h1 {
+        font-size: 1.8rem;
+      }
+      
+      table {
+        font-size: 14px;
+      }
+      
+      th, td {
+        padding: 12px 8px;
+      }
+    }
+  </style>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASFANcoyPfMKVQFjgd6Ajz7UdXXkCeB3w&libraries=places"></script>
 </head>
 <body>
-    <div class="password-overlay" id="passwordOverlay">
-        <div class="password-prompt">
-            <h2>请输入访问密码</h2>
-            <input type="password" id="passwordInput" placeholder="密码" />
-            <button id="passwordSubmit">进入</button>
-            <div id="passwordError" class="password-error"></div>
-        </div>
+  <div class="main-wrapper">
+    <!-- 左侧历史记录 -->
+    <div class="sidebar">
+      <h3>📋 查询历史</h3>
+      <ul id="historyList" class="history-list">
+        <li class="empty-history">暂无查询记录</li>
+      </ul>
+      <button id="clearHistory" class="clear-history" style="display:none;">🗑️ 清空历史</button>
     </div>
-
-  <div class="container" id="mainContent" style="display:none;">
-    <h1>顶流广告技术有限公司</h1>
-    <div class="input-group">
-      <input id="addressInput" type="text" placeholder="请输入店铺地址" />
-      <button id="btnSearch">点击查询</button>
-      <div style="margin-top:8px;color:#666;">Bedpage定点查询</div>
-    </div>
-    <div class="progress-container" id="progressContainer">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-    <div class="progress-text" id="progressText"></div>
-    <div id="loading" class="loading" style="display:none;">正在计算中...</div>
-    <div id="error" class="error"></div>
-
-    <div id="locationInfo" class="location-info" style="display:none;"></div>
-    <div id="results" class="results"></div>
-
-  </div>
+    
+    <!-- 主要内容区域 -->
+    <div class="container">
+      <div class="header">
+        <h1>顶流广告技术有限公司</h1>
+        <div class="subtitle">Bedpage定点查询系统</div>
+      </div>
+      
+      <div class="content">
+        <div class="input-section">
+          <div class="input-group">
+            <div class="input-wrapper">
+              <input id="addressInput" type="text" placeholder="示例：1437 N Jefferson St Milwaukee,WI 53202" />
+            </div>
+            <button id="btnSearch" class="search-btn">开始查询</button>
+          </div>
+          <div class="feature-note">
+            🎯 Bedpage定点查询
+          </div>
+        </div>
+        
+        <div class="progress-container" id="progressContainer">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-text" id="progressText"></div>
+        <div id="loading" class="loading" style="display:none;">正在智能计算中</div>
+        <div id="error" class="error"></div>
+        <div id="locationInfo" class="location-info" style="display:none;"></div>
+        <div id="results" class="results"></div>
+      </div>
+    </div>
+  </div>
 
 <script>
-// Password Protection Logic
-const CORRECT_PASSWORD = "skrtao";
-const passwordInput = document.getElementById('passwordInput');
-const passwordSubmit = document.getElementById('passwordSubmit');
-const passwordOverlay = document.getElementById('passwordOverlay');
-const mainContent = document.getElementById('mainContent');
-const passwordError = document.getElementById('passwordError');
-
-passwordSubmit.addEventListener('click', () => {
-    if (passwordInput.value === CORRECT_PASSWORD) {
-        passwordOverlay.style.display = 'none';
-        mainContent.style.display = 'block';
-    } else {
-        passwordError.textContent = '密码错误，请重试。';
-        passwordInput.value = ''; // Clear the input
-    }
-});
-
-passwordInput.addEventListener('keypress', (event) => {
-    if (event.key === 'Enter') {
-        passwordSubmit.click();
-    }
-});
-
-const MAX_CONCURRENT = 50; 
+const MAX_CONCURRENT = 50;
 const REQUEST_TIMEOUT = 60000;
-const MAX_BATCH_SIZE = 25; 
+const MAX_BATCH_SIZE = 25;
+const HISTORY_KEY = 'bedpage_search_history';
+const MAX_HISTORY = 10;
 
-// --- 辅助函数 (无需修改) ---
-function checkGoogleMapsAPI() { if (typeof google === 'undefined' || !google.maps) throw new Error('API服务配额已耗尽'); }
-function withTimeout(p, t) { return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('API超时')), t))]); }
-function formatLocationName(n) { return n.toLowerCase().replace(/\b\w/g, l => l.toUpperCase()); }
+// --- 历史记录管理 ---
+class SearchHistory {
+  constructor() {
+    this.history = this.loadHistory();
+    this.renderHistory();
+  }
+  
+  loadHistory() {
+    try {
+      const saved = localStorage.getItem(HISTORY_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.warn('历史记录加载失败:', e);
+      return [];
+    }
+  }
+  
+  saveHistory() {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
+    } catch (e) {
+      console.warn('历史记录保存失败:', e);
+    }
+  }
+  
+  addHistory(address) {
+    if (!address || !address.trim()) return;
+    
+    // 移除重复项
+    this.history = this.history.filter(item => item !== address);
+    // 添加到开头
+    this.history.unshift(address);
+    // 保持最多10条记录
+    if (this.history.length > MAX_HISTORY) {
+      this.history = this.history.slice(0, MAX_HISTORY);
+    }
+    
+    this.saveHistory();
+    this.renderHistory();
+  }
+  
+  removeHistory(address) {
+    this.history = this.history.filter(item => item !== address);
+    this.saveHistory();
+    this.renderHistory();
+  }
+  
+  clearHistory() {
+    this.history = [];
+    this.saveHistory();
+    this.renderHistory();
+  }
+  
+  renderHistory() {
+    const historyList = document.getElementById('historyList');
+    const clearBtn = document.getElementById('clearHistory');
+    
+    if (this.history.length === 0) {
+      historyList.innerHTML = '<li class="empty-history">暂无查询记录</li>';
+      clearBtn.style.display = 'none';
+    } else {
+      clearBtn.style.display = 'block';
+      historyList.innerHTML = this.history.map(address => `
+        <li class="history-item" onclick="searchHistory.selectHistory('${address.replace(/'/g, "\\'")}')">
+          <div class="history-item-content">
+            <span class="history-address" title="${address}">${address}</span>
+            <span class="history-delete" onclick="event.stopPropagation(); searchHistory.removeHistory('${address.replace(/'/g, "\\'")}')">✕</span>
+          </div>
+        </li>
+      `).join('');
+    }
+  }
+  
+  selectHistory(address) {
+    document.getElementById('addressInput').value = address;
+    // 触发搜索
+    document.getElementById('btnSearch').click();
+  }
+}
+
+// 初始化历史记录管理器
+const searchHistory = new SearchHistory();
+
+// 清空历史按钮事件
+document.getElementById('clearHistory').onclick = () => {
+  if (confirm('确定要清空所有查询历史吗？')) {
+    searchHistory.clearHistory();
+  }
+};
+
+// --- 辅助函数 ---
+function checkGoogleMapsAPI() { 
+  if (typeof google === 'undefined' || !google.maps) throw new Error('API服务配额已耗尽'); 
+}
+
+function withTimeout(p, t) { 
+  return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('API超时')), t))]); 
+}
+
+function formatLocationName(n) { 
+  return n.toLowerCase().replace(/\b\w/g, l => l.toUpperCase()); 
+}
+
 function chunkArray(arr, size) {
-  const chunks = [];
-  for (let i = 0; i < arr.length; i += size) { chunks.push(arr.slice(i, i + size)); }
-  return chunks;
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) { 
+    chunks.push(arr.slice(i, i + size)); 
+  }
+  return chunks;
 }
 
-// --- 核心功能函数 (无需修改) ---
-// 为了简洁，这里省略了未改变的函数体，实际使用时请包含它们
+// --- 核心功能函数 ---
 async function geocodeAddress(address) {
-  checkGoogleMapsAPI();
-  return withTimeout(new Promise((resolve, reject) => {
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({address}, (results, status) => {
-      if (status !== "OK" || !results?.length) return reject(new Error(`地址查询失败: ${status}`));
-      const result = results[0];
-      let state = "", city = "";
-      for (const c of result.address_components) {
-        if (c.types.includes("administrative_area_level_1")) state = c.long_name;
-        if (c.types.includes("locality")) city = c.long_name;
-      }
-      if (!state) return reject(new Error("未能识别州信息"));
-      if (!city) return reject(new Error("未能识别城市信息，请确保地址详细"));
+  checkGoogleMapsAPI();
+  return withTimeout(new Promise((resolve, reject) => {
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({address}, (results, status) => {
+      if (status !== "OK" || !results?.length) return reject(new Error(`地址查询失败: ${status}`));
+      const result = results[0];
+      let state = "", city = "";
+      for (const c of result.address_components) {
+        if (c.types.includes("administrative_area_level_1")) state = c.long_name;
+        if (c.types.includes("locality")) city = c.long_name;
+      }
+      if (!state) return reject(new Error("未能识别州信息"));
+      if (!city) return reject(new Error("未能识别城市信息，请确保地址详细"));
 
-      resolve({
-        lat: result.geometry.location.lat(),
-        lng: result.geometry.location.lng(),
-        stateKey: formatLocationName(state),
-        stateRaw: state,
-        cityRaw: city
-      });
-    });
-  }), REQUEST_TIMEOUT);
+      resolve({
+        lat: result.geometry.location.lat(),
+        lng: result.geometry.location.lng(),
+        stateKey: formatLocationName(state),
+        stateRaw: state,
+        cityRaw: city
+      });
+    });
+  }), REQUEST_TIMEOUT);
 }
+
 async function getDistanceMatrixBatch(origin, destChunk, stateRaw) {
-  return withTimeout(new Promise((resolve) => {
-    const service = new google.maps.DistanceMatrixService();
-    const destinationStrings = destChunk.map(dest => dest.type === 'city' ? `${dest.name}, ${stateRaw}` : `${dest.name}, ${dest.city}, ${stateRaw}`);
-    service.getDistanceMatrix({
-      origins: [origin],
-      destinations: destinationStrings,
-      travelMode: google.maps.TravelMode.DRIVING,
-      unitSystem: google.maps.UnitSystem.IMPERIAL,
-    }, (response, status) => {
-      if (status !== 'OK') {
-        resolve(destChunk.map(dest => ({...dest, distanceVal: Infinity, distance: "批量查询失败", duration: "N/A"})));
-        return;
-      }
-      const elements = response.rows[0].elements;
-      const results = destChunk.map((dest, i) => {
-        const elem = elements[i];
-        if (elem.status === 'OK') {
-          return {...dest, distance: elem.distance.text, duration: elem.duration.text, distanceVal: elem.distance.value};
-        } else {
-          return {...dest, distanceVal: Infinity, distance: "查询失败", duration: "N/A"};
-        }
-      });
-      resolve(results);
-    });
-  }), REQUEST_TIMEOUT);
+  return withTimeout(new Promise((resolve) => {
+    const service = new google.maps.DistanceMatrixService();
+    const destinationStrings = destChunk.map(dest => dest.type === 'city' ? `${dest.name}, ${stateRaw}` : `${dest.name}, ${dest.city}, ${stateRaw}`);
+    service.getDistanceMatrix({
+      origins: [origin],
+      destinations: destinationStrings,
+      travelMode: google.maps.TravelMode.DRIVING,
+      unitSystem: google.maps.UnitSystem.IMPERIAL,
+    }, (response, status) => {
+      if (status !== 'OK') {
+        resolve(destChunk.map(dest => ({...dest, distanceVal: Infinity, distance: "批量查询失败", duration: "N/A"})));
+        return;
+      }
+      const elements = response.rows[0].elements;
+      const results = destChunk.map((dest, i) => {
+        const elem = elements[i];
+        if (elem.status === 'OK') {
+          return {...dest, distance: elem.distance.text, duration: elem.duration.text, distanceVal: elem.distance.value};
+        } else {
+          return {...dest, distanceVal: Infinity, distance: "查询失败", duration: "N/A"};
+        }
+      });
+      resolve(results);
+    });
+  }), REQUEST_TIMEOUT);
 }
+
 async function concurrentPool(tasks, poolLimit, onProgress) {
-    let i = 0, results = [], active = 0;
-    return new Promise((resolve) => {
-        function next() {
-            while (active < poolLimit && i < tasks.length) {
-                active++;
-                const current = i++;
-                tasks[current]().then(res => {
-                    results[current] = res;
-                    active--;
-                    onProgress?.(results.filter(x => x).length, tasks.length);
-                    if (results.filter(x => x).length === tasks.length) {
-                        resolve(results.flat());
-                    } else {
-                        next();
-                    }
-                }).catch(() => {
-                    results[current] = [];
-                    active--;
-                    onProgress?.(results.filter(x => x).length, tasks.length);
-                    next();
-                });
-            }
-        }
-        next();
-    });
+    let i = 0, results = [], active = 0;
+    return new Promise((resolve) => {
+        function next() {
+            while (active < poolLimit && i < tasks.length) {
+                active++;
+                const current = i++;
+                tasks[current]().then(res => {
+                    results[current] = res;
+                    active--;
+                    onProgress?.(results.filter(x => x).length, tasks.length);
+                    if (results.filter(x => x).length === tasks.length) {
+                        resolve(results.flat());
+                    } else {
+                        next();
+                    }
+                }).catch(() => {
+                    results[current] = [];
+                    active--;
+                    onProgress?.(results.filter(x => x).length, tasks.length);
+                    next();
+                });
+            }
+        }
+        next();
+    });
 }
 
-
-// --- 事件处理主逻辑 (无需修改) ---
+// --- 事件处理主逻辑 ---
 const btn = document.getElementById('btnSearch');
 const loadingEl = document.getElementById('loading');
-const errorEl   = document.getElementById('error');
+const errorEl = document.getElementById('error');
 const resultsEl = document.getElementById('results');
 const locationInfoEl = document.getElementById('locationInfo');
-const progressContainer = document.getElementById('progressContainer'); // Make sure these are defined
+const progressContainer = document.getElementById('progressContainer');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
 
 btn.onclick = async function() {
-  // 重置所有显示区域
-  errorEl.textContent = '';
-  resultsEl.innerHTML = '';
-  locationInfoEl.innerHTML = '';
-  locationInfoEl.style.display = 'none';
-  loadingEl.style.display = 'block';
-  progressContainer.style.display = 'none';
-  
-  try {
-    const input = document.getElementById('addressInput').value.trim();
-    if (!input) throw new Error("请输入店铺地址");
+  // 重置所有显示区域
+  errorEl.textContent = '';
+  errorEl.style.display = 'none';
+  resultsEl.innerHTML = '';
+  locationInfoEl.innerHTML = '';
+  locationInfoEl.style.display = 'none';
+  loadingEl.style.display = 'block';
+  progressContainer.style.display = 'none';
+  
+  try {
+    const input = document.getElementById('addressInput').value.trim();
+    if (!input) throw new Error("请输入店铺地址");
 
-    // 阶段一：确定最近的城市
-    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input);
-    const originCoords = `${lat},${lng}`;
-    const resp = await fetch('bedpage.json');
-    if (!resp.ok) throw new Error('区域数据文件加载失败');
-    const allData = await resp.json();
-    const stateData = allData[stateKey];
-    if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
-    const allCityNames = Object.keys(stateData);
-    if (allCityNames.length === 0) throw new Error(`“${stateKey}”州下未定义任何城市`);
-    const cityDestinations = allCityNames.map(city => ({ name: city, type: 'city' }));
-    const cityChunks = chunkArray(cityDestinations, MAX_BATCH_SIZE);
-    const cityTasks = cityChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
-    
-    progressContainer.style.display = 'block';
-    progressBar.style.width = "0%";
-    progressText.textContent = `阶段1：正在确定最近的城市 (共 ${allCityNames.length} 个)...`;
-    
-    const cityResults = await concurrentPool(cityTasks, MAX_CONCURRENT, (finished, total) => {
-        const percent = Math.round((finished / total) * 100);
-        progressBar.style.width = percent + "%";
-        progressText.textContent = `阶段1：正在确定最近的城市... ${percent}%`;
-    });
-    
-    const validCityResults = cityResults.filter(r => r.distanceVal !== Infinity);
-    if (validCityResults.length === 0) throw new Error(`无法计算到 “${stateKey}” 州内任何一个城市的距离。`);
-    validCityResults.sort((a, b) => a.distanceVal - b.distanceVal);
-    const nearestCity = validCityResults[0];
+    // 添加到历史记录
+    searchHistory.addHistory(input);
 
-    // 阶段二：查询最近城市下的具体区域
-    const areasInNearestCity = stateData[nearestCity.name];
-    if (!Array.isArray(areasInNearestCity) || areasInNearestCity.length === 0) {
-      throw new Error(`最近的城市 “${nearestCity.name}” 下没有定义具体区域。`);
-    }
-    const areaDestinations = areasInNearestCity.map(area => ({ name: area, city: nearestCity.name, type: 'area' }));
-    const areaChunks = chunkArray(areaDestinations, MAX_BATCH_SIZE);
-    const areaTasks = areaChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
-    
-    progressBar.style.width = "0%";
-    progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的 ${areasInNearestCity.length} 个区域...`;
-    
-    const areaResults = await concurrentPool(areaTasks, MAX_CONCURRENT, (finished, total) => {
-        const percent = Math.round((finished / total) * 100);
-        progressBar.style.width = percent + "%";
-        progressText.textContent = `阶段2：正在查询“${nearestCity.name}”市下的区域... ${percent}%`;
-    });
+    // 阶段一：确定最近的城市
+    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input);
+    const originCoords = `${lat},${lng}`;
+    const resp = await fetch('bedpage.json');
+    if (!resp.ok) throw new Error('区域数据文件加载失败');
+    const allData = await resp.json();
+    const stateData = allData[stateKey];
+    if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
+    const allCityNames = Object.keys(stateData);
+    if (allCityNames.length === 0) throw new Error(`"${stateKey}"州下未定义任何城市`);
+    const cityDestinations = allCityNames.map(city => ({ name: city, type: 'city' }));
+    const cityChunks = chunkArray(cityDestinations, MAX_BATCH_SIZE);
+    const cityTasks = cityChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
+    
+    progressContainer.style.display = 'block';
+    progressBar.style.width = "0%";
+    progressText.textContent = `阶段1：正在确定最近的城市 (共 ${allCityNames.length} 个)...`;
+    
+    const cityResults = await concurrentPool(cityTasks, MAX_CONCURRENT, (finished, total) => {
+        const percent = Math.round((finished / total) * 100);
+        progressBar.style.width = percent + "%";
+        progressText.textContent = `阶段1：正在确定最近的城市... ${percent}%`;
+    });
+    
+    const validCityResults = cityResults.filter(r => r.distanceVal !== Infinity);
+    if (validCityResults.length === 0) throw new Error(`无法计算到 "${stateKey}" 州内任何一个城市的距离。`);
+    validCityResults.sort((a, b) => a.distanceVal - b.distanceVal);
+    const nearestCity = validCityResults[0];
 
-    // 阶段三：整理并显示结果
-    areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
-    
-    let tableRows = '';
-    areaResults.forEach(r => {
-      tableRows += `<tr>
-          <td>${r.name}</td>
-          <td>${r.city}</td>
-          <td>${r.distance}</td>
-          <td>${r.duration}</td>
-          <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(r.name + ', ' + r.city + ', ' + stateRaw)}" target="_blank">导航</a></td>
-      </tr>`;
-    });
-    
-    // 先显示地址信息
-    locationInfoEl.innerHTML = `<strong>地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong>${cityRaw}</strong> 市。`;
-    locationInfoEl.style.display = 'block';
-    
-    // 再显示结果列表
-    if (tableRows === '') {
-        resultsEl.innerHTML = `<p>在最近的城市“${nearestCity.name}”中未找到可计算距离的具体区域。</p>`
-    } else {
-        resultsEl.innerHTML = `
-          <table>
-            <thead><tr><th>目标地点</th><th>所属城市</th><th>距离</th><th>驾车所需时间</th><th>导航</th></tr></thead>
-            <tbody>${tableRows}</tbody>
-          </table>`;
-    }
-      
-    progressText.textContent = "查询完成！";
+    // 阶段二：查询最近城市下的具体区域
+    const areasInNearestCity = stateData[nearestCity.name];
+    if (!Array.isArray(areasInNearestCity) || areasInNearestCity.length === 0) {
+      throw new Error(`最近的城市 "${nearestCity.name}" 下没有定义具体区域。`);
+    }
+    const areaDestinations = areasInNearestCity.map(area => ({ name: area, city: nearestCity.name, type: 'area' }));
+    const areaChunks = chunkArray(areaDestinations, MAX_BATCH_SIZE);
+    const areaTasks = areaChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
+    
+    progressBar.style.width = "0%";
+    progressText.textContent = `阶段2：正在查询"${nearestCity.name}"市下的 ${areasInNearestCity.length} 个区域...`;
+    
+    const areaResults = await concurrentPool(areaTasks, MAX_CONCURRENT, (finished, total) => {
+        const percent = Math.round((finished / total) * 100);
+        progressBar.style.width = percent + "%";
+        progressText.textContent = `阶段2：正在查询"${nearestCity.name}"市下的区域... ${percent}%`;
+    });
 
-  } catch (e) {
-    errorEl.textContent = e.message;
-  } finally {
-    loadingEl.style.display = 'none';
-    // Keep progress container visible for a bit longer after completion
-    setTimeout(() => {
-        progressContainer.style.display = 'none';
-        progressText.textContent = '';
-    }, 2000);
-  }
-};
-</script>
-</body>
-</html>
+    // 阶段三：整理并显示结果
+    areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
+    
+    let tableRows = '';
+    areaResults.forEach(r => {
+      tableRows += `<tr>
+          <td><strong>${r.name}</strong></td>
+          <td>${r.city}</td>
+          <td>${r.distance}</td>
+          <td>${r.duration}</td>
+          <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(r.name + ', ' + r.city + ', ' + stateRaw)}" target="_blank">📍 导航</a></td>
+      </tr>`;
+    });
+    
+    // 先显示地址信息
+    locationInfoEl.innerHTML = `<strong>🏢 地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong
