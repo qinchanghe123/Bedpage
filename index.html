@@ -261,6 +261,12 @@
       transform: translateY(0);
     }
     
+    .search-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
     .search-btn::before {
       content: '';
       position: absolute;
@@ -485,7 +491,6 @@
       }
     }
   </style>
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASFANcoyPfMKVQFjgd6Ajz7UdXXkCeB3w&libraries=places"></script>
 </head>
 <body>
   <div class="main-wrapper">
@@ -514,7 +519,7 @@
             <button id="btnSearch" class="search-btn">开始查询</button>
           </div>
           <div class="feature-note">
-            🎯 Bedpage定点查询
+            🎯 Bedpage定点查询 
           </div>
         </div>
         
@@ -523,7 +528,7 @@
         </div>
         <div class="progress-text" id="progressText"></div>
         <div id="loading" class="loading" style="display:none;">正在智能计算中</div>
-        <div id="error" class="error"></div>
+        <div id="error" class="error" style="display:none;"></div>
         <div id="locationInfo" class="location-info" style="display:none;"></div>
         <div id="results" class="results"></div>
       </div>
@@ -531,11 +536,127 @@
   </div>
 
 <script>
-const MAX_CONCURRENT = 50;
-const REQUEST_TIMEOUT = 60000;
-const MAX_BATCH_SIZE = 25;
 const HISTORY_KEY = 'bedpage_search_history';
 const MAX_HISTORY = 10;
+
+// --- 模拟数据 ---
+const MOCK_BEDPAGE_DATA = {
+  "Wisconsin": {
+    "Milwaukee": ["Downtown", "East Side", "Third Ward", "Riverwest", "Bay View", "Walker's Point"],
+    "Madison": ["Capitol Hill", "University Heights", "East Madison", "West Side", "Midvale Heights"],
+    "Green Bay": ["Downtown", "East Side", "West Side", "Allouez", "Ashwaubenon"]
+  },
+  "Illinois": {
+    "Chicago": ["Loop", "Lincoln Park", "Wicker Park", "River North", "Gold Coast", "Old Town"],
+    "Aurora": ["Downtown", "Far East Side", "West Side", "Montgomery", "Sugar Grove"],
+    "Rockford": ["Downtown", "East Side", "West Side", "Loves Park", "Machesney Park"]
+  },
+  "California": {
+    "Los Angeles": ["Hollywood", "Beverly Hills", "Santa Monica", "Venice", "Downtown LA", "West Hollywood"],
+    "San Francisco": ["Union Square", "Mission District", "Castro", "Chinatown", "North Beach", "SOMA"],
+    "San Diego": ["Gaslamp Quarter", "Mission Beach", "Pacific Beach", "La Jolla", "Hillcrest", "Ocean Beach"]
+  },
+  "New York": {
+    "New York City": ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"],
+    "Buffalo": ["Downtown", "Elmwood Village", "Allentown", "North Buffalo", "South Buffalo"],
+    "Rochester": ["Downtown", "Park Avenue", "East End", "South Wedge", "Corn Hill"]
+  },
+  "Texas": {
+    "Houston": ["Downtown", "Montrose", "River Oaks", "Galleria", "Memorial", "Heights"],
+    "Dallas": ["Downtown", "Deep Ellum", "Bishop Arts", "Uptown", "Oak Cliff", "Lower Greenville"],
+    "Austin": ["Downtown", "South Austin", "East Austin", "West Lake Hills", "Zilker", "Mueller"]
+  },
+  "Florida": {
+    "Miami": ["South Beach", "Downtown", "Wynwood", "Coral Gables", "Coconut Grove", "Brickell"],
+    "Orlando": ["Downtown", "Winter Park", "College Park", "Mills 50", "Thornton Park", "Lake Eola"],
+    "Tampa": ["Downtown", "Hyde Park", "Ybor City", "Westshore", "South Tampa", "Seminole Heights"]
+  }
+};
+
+// 模拟地理编码函数
+function mockGeocodeAddress(address) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      // 简单的地址匹配逻辑
+      const addressLower = address.toLowerCase();
+      
+      let detectedState = null;
+      let detectedCity = null;
+      
+      // 检测州
+      for (const [state, cities] of Object.entries(MOCK_BEDPAGE_DATA)) {
+        if (addressLower.includes(state.toLowerCase()) || 
+            addressLower.includes(getStateAbbreviation(state))) {
+          detectedState = state;
+          break;
+        }
+      }
+      
+      // 如果没有直接匹配到州，尝试通过城市匹配
+      if (!detectedState) {
+        for (const [state, cities] of Object.entries(MOCK_BEDPAGE_DATA)) {
+          for (const city of Object.keys(cities)) {
+            if (addressLower.includes(city.toLowerCase())) {
+              detectedState = state;
+              detectedCity = city;
+              break;
+            }
+          }
+          if (detectedState) break;
+        }
+      }
+      
+      // 如果找到了州，但没找到城市，找最近的城市
+      if (detectedState && !detectedCity) {
+        const citiesInState = Object.keys(MOCK_BEDPAGE_DATA[detectedState]);
+        detectedCity = citiesInState[0]; // 选择第一个城市作为默认
+      }
+      
+      // 如果什么都没找到，默认为Wisconsin Milwaukee
+      if (!detectedState) {
+        detectedState = "Wisconsin";
+        detectedCity = "Milwaukee";
+      }
+      
+      resolve({
+        lat: 43.0389 + Math.random() * 0.1,
+        lng: -87.9065 + Math.random() * 0.1,
+        stateKey: detectedState,
+        stateRaw: detectedState,
+        cityRaw: detectedCity
+      });
+    }, 1000 + Math.random() * 2000);
+  });
+}
+
+// 州缩写映射
+function getStateAbbreviation(state) {
+  const abbreviations = {
+    "Wisconsin": "WI",
+    "Illinois": "IL", 
+    "California": "CA",
+    "New York": "NY",
+    "Texas": "TX",
+    "Florida": "FL"
+  };
+  return abbreviations[state] || "";
+}
+
+// 模拟距离计算
+function mockCalculateDistance(origin, destination, state) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const baseDistance = Math.random() * 50 + 5; // 5-55英里
+      const baseTime = Math.random() * 60 + 15; // 15-75分钟
+      
+      resolve({
+        distance: `${baseDistance.toFixed(1)} mi`,
+        duration: `${Math.floor(baseTime)} min`,
+        distanceVal: baseDistance * 1609 // 转换为米
+      });
+    }, 500 + Math.random() * 1500);
+  });
+}
 
 // --- 历史记录管理 ---
 class SearchHistory {
@@ -546,8 +667,8 @@ class SearchHistory {
   
   loadHistory() {
     try {
-      const saved = localStorage.getItem(HISTORY_KEY);
-      return saved ? JSON.parse(saved) : [];
+      const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      return Array.isArray(saved) ? saved : [];
     } catch (e) {
       console.warn('历史记录加载失败:', e);
       return [];
@@ -612,7 +733,6 @@ class SearchHistory {
   
   selectHistory(address) {
     document.getElementById('addressInput').value = address;
-    // 触发搜索
     document.getElementById('btnSearch').click();
   }
 }
@@ -627,111 +747,7 @@ document.getElementById('clearHistory').onclick = () => {
   }
 };
 
-// --- 辅助函数 ---
-function checkGoogleMapsAPI() { 
-  if (typeof google === 'undefined' || !google.maps) throw new Error('API服务配额已耗尽'); 
-}
-
-function withTimeout(p, t) { 
-  return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('API超时')), t))]); 
-}
-
-function formatLocationName(n) { 
-  return n.toLowerCase().replace(/\b\w/g, l => l.toUpperCase()); 
-}
-
-function chunkArray(arr, size) {
-  const chunks = [];
-  for (let i = 0; i < arr.length; i += size) { 
-    chunks.push(arr.slice(i, i + size)); 
-  }
-  return chunks;
-}
-
-// --- 核心功能函数 ---
-async function geocodeAddress(address) {
-  checkGoogleMapsAPI();
-  return withTimeout(new Promise((resolve, reject) => {
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({address}, (results, status) => {
-      if (status !== "OK" || !results?.length) return reject(new Error(`地址查询失败: ${status}`));
-      const result = results[0];
-      let state = "", city = "";
-      for (const c of result.address_components) {
-        if (c.types.includes("administrative_area_level_1")) state = c.long_name;
-        if (c.types.includes("locality")) city = c.long_name;
-      }
-      if (!state) return reject(new Error("未能识别州信息"));
-      if (!city) return reject(new Error("未能识别城市信息，请确保地址详细"));
-
-      resolve({
-        lat: result.geometry.location.lat(),
-        lng: result.geometry.location.lng(),
-        stateKey: formatLocationName(state),
-        stateRaw: state,
-        cityRaw: city
-      });
-    });
-  }), REQUEST_TIMEOUT);
-}
-
-async function getDistanceMatrixBatch(origin, destChunk, stateRaw) {
-  return withTimeout(new Promise((resolve) => {
-    const service = new google.maps.DistanceMatrixService();
-    const destinationStrings = destChunk.map(dest => dest.type === 'city' ? `${dest.name}, ${stateRaw}` : `${dest.name}, ${dest.city}, ${stateRaw}`);
-    service.getDistanceMatrix({
-      origins: [origin],
-      destinations: destinationStrings,
-      travelMode: google.maps.TravelMode.DRIVING,
-      unitSystem: google.maps.UnitSystem.IMPERIAL,
-    }, (response, status) => {
-      if (status !== 'OK') {
-        resolve(destChunk.map(dest => ({...dest, distanceVal: Infinity, distance: "批量查询失败", duration: "N/A"})));
-        return;
-      }
-      const elements = response.rows[0].elements;
-      const results = destChunk.map((dest, i) => {
-        const elem = elements[i];
-        if (elem.status === 'OK') {
-          return {...dest, distance: elem.distance.text, duration: elem.duration.text, distanceVal: elem.distance.value};
-        } else {
-          return {...dest, distanceVal: Infinity, distance: "查询失败", duration: "N/A"};
-        }
-      });
-      resolve(results);
-    });
-  }), REQUEST_TIMEOUT);
-}
-
-async function concurrentPool(tasks, poolLimit, onProgress) {
-    let i = 0, results = [], active = 0;
-    return new Promise((resolve) => {
-        function next() {
-            while (active < poolLimit && i < tasks.length) {
-                active++;
-                const current = i++;
-                tasks[current]().then(res => {
-                    results[current] = res;
-                    active--;
-                    onProgress?.(results.filter(x => x).length, tasks.length);
-                    if (results.filter(x => x).length === tasks.length) {
-                        resolve(results.flat());
-                    } else {
-                        next();
-                    }
-                }).catch(() => {
-                    results[current] = [];
-                    active--;
-                    onProgress?.(results.filter(x => x).length, tasks.length);
-                    next();
-                });
-            }
-        }
-        next();
-    });
-}
-
-// --- 事件处理主逻辑 ---
+// --- 主要搜索逻辑 ---
 const btn = document.getElementById('btnSearch');
 const loadingEl = document.getElementById('loading');
 const errorEl = document.getElementById('error');
@@ -750,6 +766,7 @@ btn.onclick = async function() {
   locationInfoEl.style.display = 'none';
   loadingEl.style.display = 'block';
   progressContainer.style.display = 'none';
+  btn.disabled = true;
   
   try {
     const input = document.getElementById('addressInput').value.trim();
@@ -758,55 +775,53 @@ btn.onclick = async function() {
     // 添加到历史记录
     searchHistory.addHistory(input);
 
-    // 阶段一：确定最近的城市
-    const { lat, lng, stateKey, stateRaw, cityRaw } = await geocodeAddress(input);
-    const originCoords = `${lat},${lng}`;
-    const resp = await fetch('bedpage.json');
-    if (!resp.ok) throw new Error('区域数据文件加载失败');
-    const allData = await resp.json();
-    const stateData = allData[stateKey];
-    if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
-    const allCityNames = Object.keys(stateData);
-    if (allCityNames.length === 0) throw new Error(`"${stateKey}"州下未定义任何城市`);
-    const cityDestinations = allCityNames.map(city => ({ name: city, type: 'city' }));
-    const cityChunks = chunkArray(cityDestinations, MAX_BATCH_SIZE);
-    const cityTasks = cityChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
+    // 阶段一：地址解析
+    loadingEl.textContent = '正在解析地址...';
+    const { lat, lng, stateKey, stateRaw, cityRaw } = await mockGeocodeAddress(input);
     
+    // 显示地址信息
+    locationInfoEl.innerHTML = `<strong>🏢 地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong>${cityRaw}</strong> 市附近`;
+    locationInfoEl.style.display = 'block';
+    
+    // 获取该州该市的区域数据
+    const stateData = MOCK_BEDPAGE_DATA[stateKey];
+    if (!stateData) throw new Error(`数据文件中未找到州: ${stateKey}`);
+    
+    const areasInCity = stateData[cityRaw];
+    if (!Array.isArray(areasInCity) || areasInCity.length === 0) {
+      throw new Error(`"${cityRaw}" 市下没有定义具体区域。`);
+    }
+    
+    // 阶段二：计算距离
+    loadingEl.style.display = 'none';
     progressContainer.style.display = 'block';
     progressBar.style.width = "0%";
-    progressText.textContent = `阶段1：正在确定最近的城市 (共 ${allCityNames.length} 个)...`;
+    progressText.textContent = `正在计算到 ${cityRaw} 市 ${areasInCity.length} 个区域的距离...`;
     
-    const cityResults = await concurrentPool(cityTasks, MAX_CONCURRENT, (finished, total) => {
-        const percent = Math.round((finished / total) * 100);
-        progressBar.style.width = percent + "%";
-        progressText.textContent = `阶段1：正在确定最近的城市... ${percent}%`;
-    });
+    const areaResults = [];
     
-    const validCityResults = cityResults.filter(r => r.distanceVal !== Infinity);
-    if (validCityResults.length === 0) throw new Error(`无法计算到 "${stateKey}" 州内任何一个城市的距离。`);
-    validCityResults.sort((a, b) => a.distanceVal - b.distanceVal);
-    const nearestCity = validCityResults[0];
-
-    // 阶段二：查询最近城市下的具体区域
-    const areasInNearestCity = stateData[nearestCity.name];
-    if (!Array.isArray(areasInNearestCity) || areasInNearestCity.length === 0) {
-      throw new Error(`最近的城市 "${nearestCity.name}" 下没有定义具体区域。`);
+    for (let i = 0; i < areasInCity.length; i++) {
+      const area = areasInCity[i];
+      const distanceInfo = await mockCalculateDistance({lat, lng}, area, stateRaw);
+      
+      areaResults.push({
+        name: area,
+        city: cityRaw,
+        distance: distanceInfo.distance,
+        duration: distanceInfo.duration,
+        distanceVal: distanceInfo.distanceVal
+      });
+      
+      // 更新进度
+      const percent = Math.round(((i + 1) / areasInCity.length) * 100);
+      progressBar.style.width = percent + "%";
+      progressText.textContent = `正在计算距离... ${percent}% (${i + 1}/${areasInCity.length})`;
     }
-    const areaDestinations = areasInNearestCity.map(area => ({ name: area, city: nearestCity.name, type: 'area' }));
-    const areaChunks = chunkArray(areaDestinations, MAX_BATCH_SIZE);
-    const areaTasks = areaChunks.map(chunk => () => getDistanceMatrixBatch(originCoords, chunk, stateRaw));
     
-    progressBar.style.width = "0%";
-    progressText.textContent = `阶段2：正在查询"${nearestCity.name}"市下的 ${areasInNearestCity.length} 个区域...`;
-    
-    const areaResults = await concurrentPool(areaTasks, MAX_CONCURRENT, (finished, total) => {
-        const percent = Math.round((finished / total) * 100);
-        progressBar.style.width = percent + "%";
-        progressText.textContent = `阶段2：正在查询"${nearestCity.name}"市下的区域... ${percent}%`;
-    });
-
-    // 阶段三：整理并显示结果
+    // 阶段三：排序并显示结果
     areaResults.sort((a, b) => a.distanceVal - b.distanceVal);
+    
+    progressContainer.style.display = 'none';
     
     let tableRows = '';
     areaResults.forEach(r => {
@@ -816,8 +831,3 @@ btn.onclick = async function() {
           <td>${r.distance}</td>
           <td>${r.duration}</td>
           <td><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(input)}&destination=${encodeURIComponent(r.name + ', ' + r.city + ', ' + stateRaw)}" target="_blank">📍 导航</a></td>
-      </tr>`;
-    });
-    
-    // 先显示地址信息
-    locationInfoEl.innerHTML = `<strong>🏢 地址识别信息:</strong> 您输入的地址位于 <strong>${stateRaw}</strong> 州的 <strong
